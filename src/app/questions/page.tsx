@@ -194,9 +194,8 @@ export default function QuestionsPage() {
       <div className="max-w-2xl mx-auto px-4 py-6 sm:py-8">
         {/* Header */}
         <div className="flex justify-between items-center mb-6">
-          <h1 className="text-lg font-bold tracking-wider uppercase">
-            <span className="text-white">Red Light </span>
-            <span className="text-red">District</span>
+          <h1 className="font-title italic text-2xl tracking-[0.04em] text-red">
+            Red Dressed
           </h1>
           <button
             onClick={handleSignOut}
