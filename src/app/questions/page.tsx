@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { getEditionForEmail } from "@/lib/editions";
@@ -41,7 +41,27 @@ export default function QuestionsPage() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
   const [animKey, setAnimKey] = useState(0);
+  const userIdRef = useRef<string | null>(null);
   const router = useRouter();
+
+  // Upsert a single answer to the database (fire-and-forget for nav saves)
+  const saveAnswerToDb = useCallback(async (answer: Answer) => {
+    const uid = userIdRef.current;
+    if (!uid) return;
+    const supabase = createClient();
+    await supabase.from("answers").upsert(
+      {
+        user_id: uid,
+        question_id: answer.question_id,
+        selected_option_id: answer.selected_option_id,
+        other_text:
+          answer.selected_option_id === null && answer.other_text
+            ? answer.other_text
+            : null,
+      },
+      { onConflict: "user_id,question_id" }
+    );
+  }, []);
 
   useEffect(() => {
     async function init() {
@@ -54,6 +74,8 @@ export default function QuestionsPage() {
         router.push("/login");
         return;
       }
+
+      userIdRef.current = user.id;
 
       const { data: completion } = await supabase
         .from("completion_status")
@@ -102,8 +124,35 @@ export default function QuestionsPage() {
         grouped[opt.question_id].push(opt);
       });
 
+      // Fetch existing answers for this user (save-progress restore)
+      const { data: existingAnswers } = await supabase
+        .from("answers")
+        .select("*")
+        .eq("user_id", user.id)
+        .in("question_id", questionIds);
+
+      const answersMap: Record<string, Answer> = {};
+      (existingAnswers || []).forEach((a) => {
+        answersMap[a.question_id] = {
+          question_id: a.question_id,
+          selected_option_id: a.selected_option_id,
+          other_text: a.other_text ?? "",
+        };
+      });
+
+      // Resume at first unanswered question, or last question if all answered
+      const firstUnanswered = (questionsData || []).findIndex(
+        (q) => !answersMap[q.id]
+      );
+
       setQuestions(questionsData || []);
       setOptionsByQuestion(grouped);
+      setAnswers(answersMap);
+      if (firstUnanswered !== -1) {
+        setCurrentIndex(firstUnanswered);
+      } else if ((questionsData || []).length > 0) {
+        setCurrentIndex((questionsData || []).length - 1);
+      }
       setLoading(false);
     }
 
@@ -121,27 +170,38 @@ export default function QuestionsPage() {
     : [];
 
   function goNext() {
+    if (currentQuestion && answers[currentQuestion.id]) {
+      saveAnswerToDb(answers[currentQuestion.id]);
+    }
     setCurrentIndex((i) => i + 1);
     setAnimKey((k) => k + 1);
   }
 
   function goBack() {
+    if (currentQuestion && answers[currentQuestion.id]) {
+      saveAnswerToDb(answers[currentQuestion.id]);
+    }
     setCurrentIndex((i) => i - 1);
     setAnimKey((k) => k + 1);
   }
 
   function selectOption(option: QuestionOption) {
     if (!currentQuestion) return;
+    const newAnswer: Answer = {
+      question_id: currentQuestion.id,
+      selected_option_id: option.is_other ? null : option.id,
+      other_text: option.is_other
+        ? answers[currentQuestion.id]?.other_text || ""
+        : "",
+    };
     setAnswers((prev) => ({
       ...prev,
-      [currentQuestion.id]: {
-        question_id: currentQuestion.id,
-        selected_option_id: option.is_other ? null : option.id,
-        other_text: option.is_other
-          ? prev[currentQuestion.id]?.other_text || ""
-          : "",
-      },
+      [currentQuestion.id]: newAnswer,
     }));
+    // Save immediately for non-other options
+    if (!option.is_other) {
+      saveAnswerToDb(newAnswer);
+    }
   }
 
   function setOtherText(text: string) {
@@ -189,24 +249,40 @@ export default function QuestionsPage() {
       return;
     }
 
-    const answerRows = Object.values(answers).map((a) => ({
-      user_id: user.id,
-      question_id: a.question_id,
-      selected_option_id: a.selected_option_id,
-      other_text:
-        a.selected_option_id === null && a.other_text ? a.other_text : null,
-    }));
+    // Save the current (last) answer
+    if (currentQuestion && answers[currentQuestion.id]) {
+      const a = answers[currentQuestion.id];
+      const { error: answerError } = await supabase.from("answers").upsert(
+        {
+          user_id: user.id,
+          question_id: a.question_id,
+          selected_option_id: a.selected_option_id,
+          other_text:
+            a.selected_option_id === null && a.other_text
+              ? a.other_text
+              : null,
+        },
+        { onConflict: "user_id,question_id" }
+      );
 
-    const { error: answersError } = await supabase
-      .from("answers")
-      .insert(answerRows);
+      if (answerError) {
+        setError("Failed to save answer. Please try again.");
+        setSubmitting(false);
+        return;
+      }
+    }
 
-    if (answersError) {
-      setError("Failed to submit answers. Please try again.");
+    // Verify all questions are answered
+    const unanswered = questions.filter((q) => !answers[q.id]);
+    if (unanswered.length > 0) {
+      setError(
+        `Please answer all questions before submitting. ${unanswered.length} remaining.`
+      );
       setSubmitting(false);
       return;
     }
 
+    // Mark as complete
     const { error: statusError } = await supabase
       .from("completion_status")
       .insert({ user_id: user.id });
@@ -221,6 +297,10 @@ export default function QuestionsPage() {
   }
 
   async function handleSignOut() {
+    // Save current answer before signing out
+    if (currentQuestion && answers[currentQuestion.id]) {
+      await saveAnswerToDb(answers[currentQuestion.id]);
+    }
     const supabase = createClient();
     await supabase.auth.signOut();
     router.push("/login");
@@ -255,6 +335,9 @@ export default function QuestionsPage() {
     currentAnswer?.selected_option_id === null &&
     currentAnswer?.other_text !== undefined;
 
+  // Count how many questions have been answered
+  const answeredCount = questions.filter((q) => answers[q.id]).length;
+
   return (
     <div className="min-h-screen bg-bg">
       <div className="max-w-2xl mx-auto px-4 py-6 sm:py-8">
@@ -277,14 +360,14 @@ export default function QuestionsPage() {
             Question {currentIndex + 1} of {totalQuestions}
           </p>
           <p className="text-sm font-semibold text-red">
-            {Math.round(((currentIndex + 1) / totalQuestions) * 100)}%
+            {answeredCount}/{totalQuestions} answered
           </p>
         </div>
         <div className="w-full bg-divider rounded-full h-1.5 mb-8">
           <div
             className="bg-red h-1.5 rounded-full transition-all duration-500 ease-out"
             style={{
-              width: `${((currentIndex + 1) / totalQuestions) * 100}%`,
+              width: `${(answeredCount / totalQuestions) * 100}%`,
             }}
           />
         </div>
