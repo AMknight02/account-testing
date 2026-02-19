@@ -20,7 +20,7 @@ const config: Config = {
         divider: "#2A2A2A",
       },
       fontFamily: {
-        sans: ["'Outfit'", "system-ui", "sans-serif"],
+        sans: ["'DM Sans'", "system-ui", "sans-serif"],
         title: ["'Cormorant Garamond'", "Georgia", "serif"],
       },
       keyframes: {
