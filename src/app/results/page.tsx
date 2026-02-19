@@ -6,23 +6,35 @@ import { createClient } from "@/lib/supabase/client";
 
 type Question = {
   id: string;
+  edition: string;
   order_num: number;
-  text: string;
-  option_a: string;
-  option_b: string;
-  option_c: string;
-  option_d: string;
+  intensity: string;
+  intensity_emoji: string;
+  title: string;
+  scenario: string;
+};
+
+type QuestionOption = {
+  id: string;
+  question_id: string;
+  label: string;
+  option_text: string;
+  is_other: boolean;
+  order_num: number;
 };
 
 type AnswerRow = {
   question_id: string;
-  selected_option: string;
+  selected_option_id: string | null;
   other_text: string | null;
   user_id: string;
 };
 
 export default function ResultsPage() {
   const [questions, setQuestions] = useState<Question[]>([]);
+  const [optionsById, setOptionsById] = useState<
+    Record<string, QuestionOption>
+  >({});
   const [myAnswers, setMyAnswers] = useState<Record<string, AnswerRow>>({});
   const [otherAnswers, setOtherAnswers] = useState<Record<string, AnswerRow>>(
     {}
@@ -62,6 +74,7 @@ export default function ResultsPage() {
       if (cancelled) return;
       setOtherCompleted(otherUserCompleted);
 
+      // Fetch ALL questions (both editions for comparison)
       const { data: questionsData } = await supabase
         .from("questions")
         .select("*")
@@ -70,6 +83,19 @@ export default function ResultsPage() {
       if (cancelled) return;
       setQuestions(questionsData || []);
 
+      // Fetch all options and index by id
+      const { data: optionsData } = await supabase
+        .from("question_options")
+        .select("*");
+
+      if (cancelled) return;
+      const optMap: Record<string, QuestionOption> = {};
+      (optionsData || []).forEach((opt) => {
+        optMap[opt.id] = opt;
+      });
+      setOptionsById(optMap);
+
+      // Fetch all accessible answers (RLS handles visibility)
       const { data: answersData } = await supabase
         .from("answers")
         .select("*");
@@ -109,14 +135,24 @@ export default function ResultsPage() {
     };
   }, [router]);
 
-  function getOptionText(
-    question: Question,
-    option: string,
-    otherText?: string | null
-  ) {
-    if (option === "other") return otherText || "Other";
-    const key = `option_${option}` as keyof Question;
-    return question[key] as string;
+  function getAnswerText(answer: AnswerRow | undefined): string | null {
+    if (!answer) return null;
+    if (answer.selected_option_id && optionsById[answer.selected_option_id]) {
+      const opt = optionsById[answer.selected_option_id];
+      return `${opt.label}: ${opt.option_text}`;
+    }
+    if (answer.other_text) {
+      return `Other: ${answer.other_text}`;
+    }
+    return null;
+  }
+
+  function answersMatch(a: AnswerRow | undefined, b: AnswerRow | undefined): boolean {
+    if (!a || !b) return false;
+    if (a.selected_option_id && b.selected_option_id) {
+      return a.selected_option_id === b.selected_option_id;
+    }
+    return false;
   }
 
   async function handleSignOut() {
@@ -144,7 +180,10 @@ export default function ResultsPage() {
             <div className="absolute inset-0 rounded-full bg-red/20 animate-ping" />
             <div className="absolute inset-2 rounded-full bg-red/30 animate-pulse-glow" />
             <div className="absolute inset-4 rounded-full bg-red/40 animate-pulse" />
-            <div className="absolute inset-6 rounded-full bg-red/60 animate-pulse-glow" style={{ animationDelay: "0.5s" }} />
+            <div
+              className="absolute inset-6 rounded-full bg-red/60 animate-pulse-glow"
+              style={{ animationDelay: "0.5s" }}
+            />
             <div className="absolute inset-8 rounded-full bg-red" />
           </div>
 
@@ -165,6 +204,20 @@ export default function ResultsPage() {
       </div>
     );
   }
+
+  // Group questions by order_num for side-by-side display
+  const questionsByOrder: Record<
+    number,
+    { her?: Question; his?: Question }
+  > = {};
+  questions.forEach((q) => {
+    if (!questionsByOrder[q.order_num]) questionsByOrder[q.order_num] = {};
+    questionsByOrder[q.order_num][q.edition as "her" | "his"] = q;
+  });
+
+  const orderNums = Object.keys(questionsByOrder)
+    .map(Number)
+    .sort((a, b) => a - b);
 
   // Results view
   return (
@@ -188,26 +241,46 @@ export default function ResultsPage() {
         </h2>
 
         <div className="space-y-4">
-          {questions.map((q, idx) => {
-            const myAnswer = myAnswers[q.id];
-            const otherAnswer = otherAnswers[q.id];
-            const matching =
-              myAnswer &&
-              otherAnswer &&
-              myAnswer.selected_option === otherAnswer.selected_option;
+          {orderNums.map((orderNum, idx) => {
+            const pair = questionsByOrder[orderNum];
+            // Show whichever question exists for this order_num
+            const displayQuestion = pair.her || pair.his;
+            if (!displayQuestion) return null;
+
+            // Find answers: my answer is for whichever question I answered
+            const myQ = pair.her
+              ? myAnswers[pair.her.id]
+                ? pair.her
+                : pair.his
+              : pair.his;
+            const otherQ = pair.her
+              ? otherAnswers[pair.her.id]
+                ? pair.her
+                : pair.his
+              : pair.his;
+
+            const myAnswer = myQ ? myAnswers[myQ.id] : undefined;
+            const otherAnswer = otherQ ? otherAnswers[otherQ.id] : undefined;
+            const matching = answersMatch(myAnswer, otherAnswer);
 
             return (
               <div
-                key={q.id}
+                key={orderNum}
                 className="bg-surface rounded-2xl border border-divider p-5 sm:p-6 animate-fade-in"
                 style={{ animationDelay: `${idx * 50}ms` }}
               >
-                <p className="text-xs font-medium text-platinum/30 uppercase tracking-wider mb-1">
-                  Question {idx + 1}
+                {/* Question header */}
+                <div className="flex items-center gap-2 mb-1">
+                  <span className="text-base">
+                    {displayQuestion.intensity_emoji}
+                  </span>
+                  <p className="text-xs font-medium text-platinum/30 uppercase tracking-wider">
+                    Q{orderNum} &middot; {displayQuestion.title}
+                  </p>
+                </div>
+                <p className="text-sm sm:text-base text-platinum/60 mb-4 leading-relaxed line-clamp-3">
+                  {displayQuestion.scenario}
                 </p>
-                <h3 className="text-base sm:text-lg font-semibold text-white mb-4 leading-relaxed">
-                  {q.text}
-                </h3>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div
@@ -220,14 +293,8 @@ export default function ResultsPage() {
                     <p className="text-[10px] font-semibold text-platinum/40 uppercase tracking-widest mb-1">
                       You
                     </p>
-                    <p className="text-platinum font-medium">
-                      {myAnswer
-                        ? getOptionText(
-                            q,
-                            myAnswer.selected_option,
-                            myAnswer.other_text
-                          )
-                        : "\u2014"}
+                    <p className="text-platinum font-medium text-sm">
+                      {getAnswerText(myAnswer) || "\u2014"}
                     </p>
                   </div>
 
@@ -241,14 +308,8 @@ export default function ResultsPage() {
                     <p className="text-[10px] font-semibold text-red/60 uppercase tracking-widest mb-1">
                       Them
                     </p>
-                    <p className="text-red font-medium">
-                      {otherAnswer
-                        ? getOptionText(
-                            q,
-                            otherAnswer.selected_option,
-                            otherAnswer.other_text
-                          )
-                        : "\u2014"}
+                    <p className="text-red font-medium text-sm">
+                      {getAnswerText(otherAnswer) || "\u2014"}
                     </p>
                   </div>
                 </div>
