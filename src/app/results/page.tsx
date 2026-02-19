@@ -30,15 +30,20 @@ type AnswerRow = {
   user_id: string;
 };
 
+type ResultCard = {
+  owner: "jessica" | "andy";
+  orderNum: number;
+  question: Question;
+};
+
 export default function ResultsPage() {
   const [questions, setQuestions] = useState<Question[]>([]);
   const [optionsById, setOptionsById] = useState<
     Record<string, QuestionOption>
   >({});
-  const [myAnswers, setMyAnswers] = useState<Record<string, AnswerRow>>({});
-  const [otherAnswers, setOtherAnswers] = useState<Record<string, AnswerRow>>(
-    {}
-  );
+  const [answersByQuestionId, setAnswersByQuestionId] = useState<
+    Record<string, AnswerRow>
+  >({});
   const [otherCompleted, setOtherCompleted] = useState(false);
   const [loading, setLoading] = useState(true);
   const router = useRouter();
@@ -74,7 +79,7 @@ export default function ResultsPage() {
       if (cancelled) return;
       setOtherCompleted(otherUserCompleted);
 
-      // Fetch ALL questions (both editions for comparison)
+      // Fetch ALL questions (both editions)
       const { data: questionsData } = await supabase
         .from("questions")
         .select("*")
@@ -101,20 +106,13 @@ export default function ResultsPage() {
         .select("*");
 
       if (cancelled) return;
-
-      const myMap: Record<string, AnswerRow> = {};
-      const otherMap: Record<string, AnswerRow> = {};
-
+      // Index by question_id — each user answers only their edition,
+      // so there's at most one answer per question.
+      const aMap: Record<string, AnswerRow> = {};
       answersData?.forEach((a) => {
-        if (a.user_id === user.id) {
-          myMap[a.question_id] = a;
-        } else {
-          otherMap[a.question_id] = a;
-        }
+        aMap[a.question_id] = a;
       });
-
-      setMyAnswers(myMap);
-      setOtherAnswers(otherMap);
+      setAnswersByQuestionId(aMap);
       setLoading(false);
 
       if (otherUserCompleted && intervalRef.current) {
@@ -145,14 +143,6 @@ export default function ResultsPage() {
       return `Other: ${answer.other_text}`;
     }
     return null;
-  }
-
-  function answersMatch(a: AnswerRow | undefined, b: AnswerRow | undefined): boolean {
-    if (!a || !b) return false;
-    if (a.selected_option_id && b.selected_option_id) {
-      return a.selected_option_id === b.selected_option_id;
-    }
-    return false;
   }
 
   async function handleSignOut() {
@@ -205,7 +195,7 @@ export default function ResultsPage() {
     );
   }
 
-  // Group questions by order_num for side-by-side display
+  // Group questions by order_num with her/his variants
   const questionsByOrder: Record<
     number,
     { her?: Question; his?: Question }
@@ -219,7 +209,15 @@ export default function ResultsPage() {
     .map(Number)
     .sort((a, b) => a - b);
 
-  // Results view
+  // Build a flat list of cards: Jessica's question then Andy's question for each order_num
+  const cards: ResultCard[] = [];
+  orderNums.forEach((orderNum) => {
+    const pair = questionsByOrder[orderNum];
+    if (pair.her) cards.push({ owner: "jessica", orderNum, question: pair.her });
+    if (pair.his) cards.push({ owner: "andy", orderNum, question: pair.his });
+  });
+
+  // Results view — all 30 questions interleaved
   return (
     <div className="min-h-screen bg-bg">
       <div className="max-w-3xl mx-auto px-4 py-6 sm:py-8">
@@ -241,84 +239,99 @@ export default function ResultsPage() {
         </h2>
 
         <div className="space-y-4">
-          {orderNums.map((orderNum, idx) => {
+          {cards.map((card, idx) => {
+            const { owner, orderNum, question } = card;
+            const isJessica = owner === "jessica";
+
+            // Look up the paired question for the other edition at the same order_num
             const pair = questionsByOrder[orderNum];
-            // Show whichever question exists for this order_num
-            const displayQuestion = pair.her || pair.his;
-            if (!displayQuestion) return null;
+            const herQ = pair.her;
+            const hisQ = pair.his;
 
-            // Find answers: my answer is for whichever question I answered
-            const myQ = pair.her
-              ? myAnswers[pair.her.id]
-                ? pair.her
-                : pair.his
-              : pair.his;
-            const otherQ = pair.her
-              ? otherAnswers[pair.her.id]
-                ? pair.her
-                : pair.his
-              : pair.his;
-
-            const myAnswer = myQ ? myAnswers[myQ.id] : undefined;
-            const otherAnswer = otherQ ? otherAnswers[otherQ.id] : undefined;
-            const matching = answersMatch(myAnswer, otherAnswer);
+            // Jessica answers her edition questions; Andy answers his edition questions
+            const jessicaAnswer = herQ
+              ? answersByQuestionId[herQ.id]
+              : undefined;
+            const andyAnswer = hisQ
+              ? answersByQuestionId[hisQ.id]
+              : undefined;
 
             return (
               <div
-                key={orderNum}
+                key={`${orderNum}-${owner}`}
                 className="bg-surface rounded-2xl border border-divider p-5 sm:p-6 animate-fade-in"
-                style={{ animationDelay: `${idx * 50}ms` }}
+                style={{ animationDelay: `${idx * 40}ms` }}
               >
                 {/* Question header */}
                 <div className="flex items-center gap-2 mb-1">
                   <span className="text-base">
-                    {displayQuestion.intensity_emoji}
+                    {question.intensity_emoji}
                   </span>
-                  <p className="text-xs font-medium text-platinum/30 uppercase tracking-wider">
-                    Q{orderNum} &middot; {displayQuestion.title}
+                  <p
+                    className={`text-xs font-medium uppercase tracking-wider ${
+                      isJessica ? "text-platinum/30" : "text-red/40"
+                    }`}
+                  >
+                    Q{orderNum} &middot; {question.title}
                   </p>
                 </div>
-                <p className="text-sm sm:text-base text-platinum/60 mb-4 leading-relaxed line-clamp-3">
-                  {displayQuestion.scenario}
+
+                {/* Owner label */}
+                <p
+                  className={`text-[10px] font-semibold uppercase tracking-widest mb-2 ${
+                    isJessica ? "text-platinum/50" : "text-red/50"
+                  }`}
+                >
+                  {isJessica ? "Jessica\u2019s Question" : "Andy\u2019s Question"}
                 </p>
 
+                {/* Scenario */}
+                <p className="text-sm sm:text-base text-platinum/60 mb-4 leading-relaxed">
+                  {question.scenario}
+                </p>
+
+                {/* Answers — owner's answer first, then the other person */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <div
-                    className={`p-3 rounded-xl border ${
-                      matching
-                        ? "border-red/30 bg-red/5"
-                        : "border-divider bg-bg"
-                    }`}
-                  >
-                    <p className="text-[10px] font-semibold text-platinum/40 uppercase tracking-widest mb-1">
-                      You
-                    </p>
-                    <p className="text-platinum font-medium text-sm">
-                      {getAnswerText(myAnswer) || "\u2014"}
-                    </p>
-                  </div>
-
-                  <div
-                    className={`p-3 rounded-xl border ${
-                      matching
-                        ? "border-red/30 bg-red/5"
-                        : "border-divider bg-bg"
-                    }`}
-                  >
-                    <p className="text-[10px] font-semibold text-red/60 uppercase tracking-widest mb-1">
-                      Them
-                    </p>
-                    <p className="text-red font-medium text-sm">
-                      {getAnswerText(otherAnswer) || "\u2014"}
-                    </p>
-                  </div>
+                  {isJessica ? (
+                    <>
+                      <div className="p-3 rounded-xl border border-divider bg-bg">
+                        <p className="text-[10px] font-semibold text-platinum/40 uppercase tracking-widest mb-1">
+                          Jessica
+                        </p>
+                        <p className="text-platinum font-medium text-sm">
+                          {getAnswerText(jessicaAnswer) || "\u2014"}
+                        </p>
+                      </div>
+                      <div className="p-3 rounded-xl border border-divider bg-bg">
+                        <p className="text-[10px] font-semibold text-red/60 uppercase tracking-widest mb-1">
+                          Andy
+                        </p>
+                        <p className="text-red font-medium text-sm">
+                          {getAnswerText(andyAnswer) || "\u2014"}
+                        </p>
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <div className="p-3 rounded-xl border border-divider bg-bg">
+                        <p className="text-[10px] font-semibold text-red/60 uppercase tracking-widest mb-1">
+                          Andy
+                        </p>
+                        <p className="text-red font-medium text-sm">
+                          {getAnswerText(andyAnswer) || "\u2014"}
+                        </p>
+                      </div>
+                      <div className="p-3 rounded-xl border border-divider bg-bg">
+                        <p className="text-[10px] font-semibold text-platinum/40 uppercase tracking-widest mb-1">
+                          Jessica
+                        </p>
+                        <p className="text-platinum font-medium text-sm">
+                          {getAnswerText(jessicaAnswer) || "\u2014"}
+                        </p>
+                      </div>
+                    </>
+                  )}
                 </div>
-
-                {matching && (
-                  <p className="text-xs text-red/60 mt-2 text-center font-medium">
-                    Match
-                  </p>
-                )}
               </div>
             );
           })}
