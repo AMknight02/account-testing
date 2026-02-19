@@ -39,7 +39,8 @@ create table public.answers (
   question_id uuid not null references public.questions(id),
   selected_option_id uuid references public.question_options(id),
   other_text text,
-  created_at timestamptz not null default now()
+  created_at timestamptz not null default now(),
+  constraint answers_user_question_unique unique (user_id, question_id)
 );
 
 create table public.completion_status (
