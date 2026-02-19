@@ -34,11 +34,8 @@ export default function LoginPage() {
   return (
     <div className="min-h-screen flex items-center justify-center bg-bg px-4">
       <div className="w-full max-w-sm">
-        <h1 className="text-4xl sm:text-5xl font-extrabold text-center mb-2 tracking-[0.15em] uppercase text-white">
-          Red Light
-        </h1>
-        <h1 className="text-4xl sm:text-5xl font-extrabold text-center mb-10 tracking-[0.15em] uppercase text-red">
-          District
+        <h1 className="font-title italic text-5xl sm:text-6xl text-center mb-10 tracking-[0.04em] text-red">
+          Red Dressed
         </h1>
 
         <div className="bg-surface rounded-2xl p-6 sm:p-8 border border-divider">
