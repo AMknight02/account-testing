@@ -27,6 +27,7 @@ export default function QuestionsPage() {
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
+  const [animKey, setAnimKey] = useState(0);
   const router = useRouter();
 
   useEffect(() => {
@@ -41,7 +42,6 @@ export default function QuestionsPage() {
         return;
       }
 
-      // Check if already completed
       const { data: completion } = await supabase
         .from("completion_status")
         .select("user_id")
@@ -53,7 +53,6 @@ export default function QuestionsPage() {
         return;
       }
 
-      // Fetch questions
       const { data: questionsData, error: questionsError } = await supabase
         .from("questions")
         .select("*")
@@ -78,6 +77,16 @@ export default function QuestionsPage() {
   const currentAnswer = currentQuestion
     ? answers[currentQuestion.id]
     : undefined;
+
+  function goNext() {
+    setCurrentIndex((i) => i + 1);
+    setAnimKey((k) => k + 1);
+  }
+
+  function goBack() {
+    setCurrentIndex((i) => i - 1);
+    setAnimKey((k) => k + 1);
+  }
 
   function selectOption(option: string) {
     if (!currentQuestion) return;
@@ -158,120 +167,175 @@ export default function QuestionsPage() {
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50">
-        <p className="text-gray-500">Loading questions...</p>
+      <div className="min-h-screen flex items-center justify-center bg-bg">
+        <div className="w-6 h-6 border-2 border-red border-t-transparent rounded-full animate-spin" />
       </div>
     );
   }
 
   if (error && questions.length === 0) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50">
-        <p className="text-red-600">{error}</p>
+      <div className="min-h-screen flex items-center justify-center bg-bg">
+        <p className="text-red animate-fade-in">{error}</p>
       </div>
     );
   }
 
   if (questions.length === 0) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50">
-        <p className="text-gray-500">No questions found.</p>
+      <div className="min-h-screen flex items-center justify-center bg-bg">
+        <p className="text-platinum/60">No questions found.</p>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <div className="max-w-2xl mx-auto px-4 py-8">
-        <div className="flex justify-between items-center mb-8">
-          <p className="text-sm text-gray-500">
-            Question {currentIndex + 1} of {totalQuestions}
-          </p>
+    <div className="min-h-screen bg-bg">
+      <div className="max-w-2xl mx-auto px-4 py-6 sm:py-8">
+        {/* Header */}
+        <div className="flex justify-between items-center mb-6">
+          <h1 className="text-lg font-bold tracking-wider uppercase">
+            <span className="text-white">Red Light </span>
+            <span className="text-red">District</span>
+          </h1>
           <button
             onClick={handleSignOut}
-            className="text-sm text-gray-400 hover:text-gray-600 transition-colors"
+            className="text-sm text-platinum/40 hover:text-platinum transition-colors"
           >
             Sign out
           </button>
         </div>
 
-        {/* Progress bar */}
-        <div className="w-full bg-gray-200 rounded-full h-2 mb-8">
+        {/* Progress */}
+        <div className="flex items-center justify-between mb-2">
+          <p className="text-sm text-platinum/60">
+            Question {currentIndex + 1} of {totalQuestions}
+          </p>
+          <p className="text-sm font-semibold text-red">
+            {Math.round(((currentIndex + 1) / totalQuestions) * 100)}%
+          </p>
+        </div>
+        <div className="w-full bg-divider rounded-full h-1.5 mb-8">
           <div
-            className="bg-blue-600 h-2 rounded-full transition-all duration-300"
+            className="bg-red h-1.5 rounded-full transition-all duration-500 ease-out"
             style={{
               width: `${((currentIndex + 1) / totalQuestions) * 100}%`,
             }}
           />
         </div>
 
-        <div className="bg-white rounded-lg shadow-md p-6">
-          <h2 className="text-lg font-semibold text-gray-900 mb-6">
-            {currentQuestion.text}
-          </h2>
+        {/* Question Card */}
+        <div
+          key={animKey}
+          className="animate-fade-in"
+          style={{
+            animationDuration: "0.25s",
+          }}
+        >
+          <div className="bg-surface rounded-2xl border border-divider p-6 sm:p-8">
+            <h2 className="text-xl sm:text-2xl font-semibold text-white mb-8 leading-relaxed">
+              {currentQuestion.text}
+            </h2>
 
-          <div className="space-y-3">
-            {(["a", "b", "c", "d"] as const).map((option) => {
-              const optionText = currentQuestion[
-                `option_${option}` as keyof Question
-              ] as string;
-              return (
-                <label
-                  key={option}
-                  className={`flex items-center p-3 rounded-lg border cursor-pointer transition-colors ${
-                    currentAnswer?.selected_option === option
-                      ? "border-blue-500 bg-blue-50"
-                      : "border-gray-200 hover:border-gray-300"
-                  }`}
-                >
-                  <input
-                    type="radio"
-                    name="option"
-                    checked={currentAnswer?.selected_option === option}
-                    onChange={() => selectOption(option)}
-                    className="mr-3 text-blue-600"
-                  />
-                  <span className="text-gray-800">{optionText}</span>
-                </label>
-              );
-            })}
+            <div className="space-y-3">
+              {(["a", "b", "c", "d"] as const).map((option) => {
+                const optionText = currentQuestion[
+                  `option_${option}` as keyof Question
+                ] as string;
+                const isSelected = currentAnswer?.selected_option === option;
+                return (
+                  <button
+                    key={option}
+                    type="button"
+                    onClick={() => selectOption(option)}
+                    className={`w-full text-left p-4 rounded-xl border transition-all duration-200 ${
+                      isSelected
+                        ? "border-red bg-red/10 shadow-[0_0_15px_rgba(220,38,38,0.15)]"
+                        : "border-divider bg-bg hover:border-red-dark hover:bg-bg/80"
+                    }`}
+                  >
+                    <div className="flex items-center">
+                      <div
+                        className={`w-5 h-5 rounded-full border-2 mr-4 flex-shrink-0 flex items-center justify-center transition-all duration-200 ${
+                          isSelected
+                            ? "border-red bg-red"
+                            : "border-platinum/30"
+                        }`}
+                      >
+                        {isSelected && (
+                          <div className="w-2 h-2 rounded-full bg-white" />
+                        )}
+                      </div>
+                      <span
+                        className={`text-base ${
+                          isSelected ? "text-white" : "text-platinum/80"
+                        }`}
+                      >
+                        {optionText}
+                      </span>
+                    </div>
+                  </button>
+                );
+              })}
 
-            <label
-              className={`flex items-center p-3 rounded-lg border cursor-pointer transition-colors ${
-                currentAnswer?.selected_option === "other"
-                  ? "border-blue-500 bg-blue-50"
-                  : "border-gray-200 hover:border-gray-300"
-              }`}
-            >
-              <input
-                type="radio"
-                name="option"
-                checked={currentAnswer?.selected_option === "other"}
-                onChange={() => selectOption("other")}
-                className="mr-3 text-blue-600"
-              />
-              <span className="text-gray-800">Other</span>
-            </label>
+              {/* Other option */}
+              <button
+                type="button"
+                onClick={() => selectOption("other")}
+                className={`w-full text-left p-4 rounded-xl border transition-all duration-200 ${
+                  currentAnswer?.selected_option === "other"
+                    ? "border-red bg-red/10 shadow-[0_0_15px_rgba(220,38,38,0.15)]"
+                    : "border-divider bg-bg hover:border-red-dark hover:bg-bg/80"
+                }`}
+              >
+                <div className="flex items-center">
+                  <div
+                    className={`w-5 h-5 rounded-full border-2 mr-4 flex-shrink-0 flex items-center justify-center transition-all duration-200 ${
+                      currentAnswer?.selected_option === "other"
+                        ? "border-red bg-red"
+                        : "border-platinum/30"
+                    }`}
+                  >
+                    {currentAnswer?.selected_option === "other" && (
+                      <div className="w-2 h-2 rounded-full bg-white" />
+                    )}
+                  </div>
+                  <span
+                    className={`text-base ${
+                      currentAnswer?.selected_option === "other"
+                        ? "text-white"
+                        : "text-platinum/80"
+                    }`}
+                  >
+                    Other
+                  </span>
+                </div>
+              </button>
 
-            {currentAnswer?.selected_option === "other" && (
-              <input
-                type="text"
-                value={currentAnswer.other_text || ""}
-                onChange={(e) => setOtherText(e.target.value)}
-                placeholder="Please specify..."
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent mt-2"
-              />
-            )}
+              {currentAnswer?.selected_option === "other" && (
+                <input
+                  type="text"
+                  value={currentAnswer.other_text || ""}
+                  onChange={(e) => setOtherText(e.target.value)}
+                  placeholder="Please specify..."
+                  className="w-full px-4 py-3 bg-bg border border-divider rounded-xl text-white placeholder-neutral-500 focus:outline-none focus:ring-2 focus:ring-red focus:border-transparent transition-all animate-fade-in"
+                  autoFocus
+                />
+              )}
+            </div>
           </div>
         </div>
 
-        {error && <p className="text-red-600 text-sm mt-4">{error}</p>}
+        {error && (
+          <p className="text-red text-sm mt-4 animate-fade-in">{error}</p>
+        )}
 
-        <div className="flex justify-between mt-6">
+        {/* Navigation */}
+        <div className="flex justify-between mt-6 gap-4">
           <button
-            onClick={() => setCurrentIndex((i) => i - 1)}
+            onClick={goBack}
             disabled={currentIndex === 0}
-            className="px-6 py-2 text-gray-600 bg-white border border-gray-300 rounded-md hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            className="px-6 py-3 text-platinum/60 bg-surface border border-divider rounded-xl hover:border-red-dark hover:text-platinum disabled:opacity-30 disabled:cursor-not-allowed transition-all duration-200"
           >
             Back
           </button>
@@ -280,15 +344,15 @@ export default function QuestionsPage() {
             <button
               onClick={handleSubmit}
               disabled={submitting || !currentAnswer?.selected_option}
-              className="px-6 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              className="flex-1 sm:flex-none px-8 py-3 bg-red text-white font-semibold rounded-xl hover:bg-red-hover disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200"
             >
               {submitting ? "Submitting..." : "Submit"}
             </button>
           ) : (
             <button
-              onClick={() => setCurrentIndex((i) => i + 1)}
+              onClick={goNext}
               disabled={!currentAnswer?.selected_option}
-              className="px-6 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              className="flex-1 sm:flex-none px-8 py-3 bg-red text-white font-semibold rounded-xl hover:bg-red-hover disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200"
             >
               Next
             </button>

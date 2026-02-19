@@ -46,7 +46,6 @@ export default function ResultsPage() {
         return;
       }
 
-      // Check completion status for all users
       const { data: completions } = await supabase
         .from("completion_status")
         .select("user_id");
@@ -63,7 +62,6 @@ export default function ResultsPage() {
       if (cancelled) return;
       setOtherCompleted(otherUserCompleted);
 
-      // Fetch questions
       const { data: questionsData } = await supabase
         .from("questions")
         .select("*")
@@ -72,7 +70,6 @@ export default function ResultsPage() {
       if (cancelled) return;
       setQuestions(questionsData || []);
 
-      // Fetch all accessible answers (RLS handles visibility)
       const { data: answersData } = await supabase
         .from("answers")
         .select("*");
@@ -94,7 +91,6 @@ export default function ResultsPage() {
       setOtherAnswers(otherMap);
       setLoading(false);
 
-      // Stop polling once both have completed
       if (otherUserCompleted && intervalRef.current) {
         clearInterval(intervalRef.current);
         intervalRef.current = null;
@@ -103,7 +99,6 @@ export default function ResultsPage() {
 
     fetchData();
 
-    // Poll every 5 seconds
     intervalRef.current = setInterval(fetchData, 5000);
 
     return () => {
@@ -133,65 +128,100 @@ export default function ResultsPage() {
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50">
-        <p className="text-gray-500">Loading results...</p>
+      <div className="min-h-screen flex items-center justify-center bg-bg">
+        <div className="w-6 h-6 border-2 border-red border-t-transparent rounded-full animate-spin" />
       </div>
     );
   }
 
+  // Waiting state
+  if (!otherCompleted) {
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center bg-bg px-4">
+        <div className="text-center">
+          {/* Pulsing red glow */}
+          <div className="relative w-24 h-24 mx-auto mb-8">
+            <div className="absolute inset-0 rounded-full bg-red/20 animate-ping" />
+            <div className="absolute inset-2 rounded-full bg-red/30 animate-pulse-glow" />
+            <div className="absolute inset-4 rounded-full bg-red/40 animate-pulse" />
+            <div className="absolute inset-6 rounded-full bg-red/60 animate-pulse-glow" style={{ animationDelay: "0.5s" }} />
+            <div className="absolute inset-8 rounded-full bg-red" />
+          </div>
+
+          <h1 className="text-xl sm:text-2xl font-bold text-white mb-3">
+            Waiting for the other person...
+          </h1>
+          <p className="text-platinum/40 text-sm">
+            This page will update automatically
+          </p>
+        </div>
+
+        <button
+          onClick={handleSignOut}
+          className="mt-12 text-sm text-platinum/30 hover:text-platinum/60 transition-colors"
+        >
+          Sign out
+        </button>
+      </div>
+    );
+  }
+
+  // Results view
   return (
-    <div className="min-h-screen bg-gray-50">
-      <div className="max-w-3xl mx-auto px-4 py-8">
+    <div className="min-h-screen bg-bg">
+      <div className="max-w-3xl mx-auto px-4 py-6 sm:py-8">
+        {/* Header */}
         <div className="flex justify-between items-center mb-8">
-          <h1 className="text-2xl font-bold text-gray-900">Results</h1>
+          <h1 className="text-lg font-bold tracking-wider uppercase">
+            <span className="text-white">Red Light </span>
+            <span className="text-red">District</span>
+          </h1>
           <button
             onClick={handleSignOut}
-            className="text-sm text-gray-400 hover:text-gray-600 transition-colors"
+            className="text-sm text-platinum/40 hover:text-platinum transition-colors"
           >
             Sign out
           </button>
         </div>
 
-        {!otherCompleted && (
-          <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 mb-8">
-            <p className="text-yellow-800">
-              Waiting for the other person to finish...
-            </p>
-            <p className="text-yellow-600 text-sm mt-1">
-              This page will update automatically.
-            </p>
-          </div>
-        )}
+        <h2 className="text-2xl sm:text-3xl font-bold text-white mb-8">
+          Results
+        </h2>
 
-        <div className="space-y-6">
+        <div className="space-y-4">
           {questions.map((q, idx) => {
             const myAnswer = myAnswers[q.id];
             const otherAnswer = otherAnswers[q.id];
             const matching =
-              otherCompleted &&
               myAnswer &&
               otherAnswer &&
               myAnswer.selected_option === otherAnswer.selected_option;
 
             return (
-              <div key={q.id} className="bg-white rounded-lg shadow-md p-6">
-                <p className="text-sm text-gray-400 mb-1">
+              <div
+                key={q.id}
+                className="bg-surface rounded-2xl border border-divider p-5 sm:p-6 animate-fade-in"
+                style={{ animationDelay: `${idx * 50}ms` }}
+              >
+                <p className="text-xs font-medium text-platinum/30 uppercase tracking-wider mb-1">
                   Question {idx + 1}
                 </p>
-                <h3 className="text-lg font-semibold text-gray-900 mb-4">
+                <h3 className="text-base sm:text-lg font-semibold text-white mb-4 leading-relaxed">
                   {q.text}
                 </h3>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div>
-                    <p className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-1">
-                      Your Answer
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div
+                    className={`p-3 rounded-xl border ${
+                      matching
+                        ? "border-red/30 bg-red/5"
+                        : "border-divider bg-bg"
+                    }`}
+                  >
+                    <p className="text-[10px] font-semibold text-platinum/40 uppercase tracking-widest mb-1">
+                      You
                     </p>
-                    <p
-                      className={`text-gray-800 p-2 rounded ${
-                        matching ? "bg-green-50" : "bg-gray-50"
-                      }`}
-                    >
+                    <p className="text-platinum font-medium">
                       {myAnswer
                         ? getOptionText(
                             q,
@@ -202,16 +232,18 @@ export default function ResultsPage() {
                     </p>
                   </div>
 
-                  <div>
-                    <p className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-1">
-                      Their Answer
+                  <div
+                    className={`p-3 rounded-xl border ${
+                      matching
+                        ? "border-red/30 bg-red/5"
+                        : "border-divider bg-bg"
+                    }`}
+                  >
+                    <p className="text-[10px] font-semibold text-red/60 uppercase tracking-widest mb-1">
+                      Them
                     </p>
-                    <p
-                      className={`text-gray-800 p-2 rounded ${
-                        matching ? "bg-green-50" : "bg-gray-50"
-                      }`}
-                    >
-                      {otherCompleted && otherAnswer
+                    <p className="text-red font-medium">
+                      {otherAnswer
                         ? getOptionText(
                             q,
                             otherAnswer.selected_option,
@@ -221,6 +253,12 @@ export default function ResultsPage() {
                     </p>
                   </div>
                 </div>
+
+                {matching && (
+                  <p className="text-xs text-red/60 mt-2 text-center font-medium">
+                    Match
+                  </p>
+                )}
               </div>
             );
           })}
